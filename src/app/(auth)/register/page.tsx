@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Alert } from '@/components/ui/Alert';
 import { authService } from '@/lib/auth';
-import { User, Mail, Lock, Smartphone, MapPin, Calendar, Eye, EyeOff, CheckCircle, ArrowLeft } from 'lucide-react';
+import { User, Mail, Lock, Smartphone, MapPin, Calendar, Eye, EyeOff, CheckCircle, ArrowLeft, UserCircle, UserPlus } from 'lucide-react';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -17,6 +17,8 @@ export default function RegisterPage() {
     email: '',
     password: '',
     confirmPassword: '',
+    firstName: '',
+    lastName: '',
     phoneNumber: '',
     address: '',
     birthDate: ''
@@ -29,14 +31,31 @@ export default function RegisterPage() {
   const [step, setStep] = useState(1);
 
   const validateStep1 = () => {
-    if (formData.password !== formData.confirmPassword) {
-      setError('Las contraseñas no coinciden');
+    if (!formData.username.trim()) {
+      setError('El nombre de usuario es requerido');
+      return false;
+    }
+    if (!formData.email.trim()) {
+      setError('El correo electrónico es requerido');
+      return false;
+    }
+    if (!formData.password) {
+      setError('La contraseña es requerida');
       return false;
     }
     if (formData.password.length < 6) {
       setError('La contraseña debe tener al menos 6 caracteres');
       return false;
     }
+    if (formData.password !== formData.confirmPassword) {
+      setError('Las contraseñas no coinciden');
+      return false;
+    }
+    return true;
+  };
+
+  const validateStep2 = () => {
+    // Campos opcionales, no hay validación estricta
     return true;
   };
 
@@ -56,26 +75,47 @@ export default function RegisterPage() {
     e.preventDefault();
     setError('');
     setSuccess('');
+    
+    // Validar todos los pasos
+    if (!validateStep1() || !validateStep2()) {
+      return;
+    }
+    
     setLoading(true);
 
     try {
+      // Preparar datos para el backend
       const registerData: any = {
-        username: formData.username,
-        email: formData.email,
+        username: formData.username.trim(),
+        email: formData.email.trim(),
         password: formData.password,
+        // ✅ AGREGADOS: firstName y lastName
+        firstName: formData.firstName.trim() || undefined,
+        lastName: formData.lastName.trim() || undefined,
+        phoneNumber: formData.phoneNumber.trim() || undefined,
+        address: formData.address.trim() || undefined,
+        birthDate: formData.birthDate || undefined
       };
 
-      if (formData.phoneNumber) registerData.phoneNumber = formData.phoneNumber;
-      if (formData.address) registerData.address = formData.address;
-      if (formData.birthDate) registerData.birthDate = formData.birthDate;
+      // Eliminar campos undefined
+      Object.keys(registerData).forEach(key => {
+        if (registerData[key] === undefined) {
+          delete registerData[key];
+        }
+      });
 
+      console.log('Enviando datos de registro:', registerData);
+      
       await authService.register(registerData);
+      
       setSuccess('¡Registro exitoso! Redirigiendo al login...');
       
       setTimeout(() => {
         router.push('/login');
       }, 2000);
+      
     } catch (err: any) {
+      console.error('Error completo de registro:', err);
       
       let errorMsg = 'Error en el registro';
       
@@ -87,10 +127,15 @@ export default function RegisterPage() {
         errorMsg = err.response.data;
       } else if (err.message) {
         errorMsg = err.message;
+      } else if (err.response?.status === 409) {
+        errorMsg = 'El usuario o email ya existe';
+      } else if (err.response?.status === 400) {
+        errorMsg = 'Datos inválidos. Verifica la información ingresada';
+      } else if (!err.response) {
+        errorMsg = 'No se pudo conectar con el servidor';
       }
       
       setError(errorMsg);
-      console.error('Error de registro:', err);
     } finally {
       setLoading(false);
     }
@@ -107,9 +152,7 @@ export default function RegisterPage() {
   maxDate.setFullYear(maxDate.getFullYear() - 18);
   const maxDateString = maxDate.toISOString().split('T')[0];
 
-  // ✅ CLASES REUTILIZABLES PARA INPUTS
   const inputClasses = "pl-10 w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none bg-white text-gray-900 placeholder:text-gray-500";
-  
   const inputWithPaddingRight = "pl-10 pr-10 w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none bg-white text-gray-900 placeholder:text-gray-500";
 
   return (
@@ -118,7 +161,7 @@ export default function RegisterPage() {
         
         <div className="text-center mb-8">
           <div className="mx-auto h-16 w-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg mb-4">
-            <User className="h-8 w-8 text-white" />
+            <UserPlus className="h-8 w-8 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 sm:text-4xl">
             Crear Cuenta
@@ -174,6 +217,7 @@ export default function RegisterPage() {
                         onChange={handleChange}
                         className={inputClasses}
                         placeholder="usuario123"
+                        minLength={3}
                       />
                     </div>
                   </div>
@@ -270,6 +314,42 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  {/* First Name */}
+                  <div className="relative">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Nombres
+                    </label>
+                    <div className="relative">
+                      <UserCircle className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 z-10" />
+                      <input
+                        type="text"
+                        name="firstName"
+                        value={formData.firstName}
+                        onChange={handleChange}
+                        className={inputClasses}
+                        placeholder="Juan"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Last Name */}
+                  <div className="relative">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Apellidos
+                    </label>
+                    <div className="relative">
+                      <UserCircle className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400 z-10" />
+                      <input
+                        type="text"
+                        name="lastName"
+                        value={formData.lastName}
+                        onChange={handleChange}
+                        className={inputClasses}
+                        placeholder="Pérez"
+                      />
+                    </div>
+                  </div>
+
                   {/* Phone */}
                   <div className="relative md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -327,7 +407,6 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="flex gap-3 pt-2">
-                  {/* ✅ BOTÓN ATRÁS CORREGIDO */}
                   <button
                     type="button"
                     onClick={handleBack}

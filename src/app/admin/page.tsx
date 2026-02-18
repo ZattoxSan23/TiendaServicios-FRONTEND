@@ -1,10 +1,10 @@
-// app/admin/page.tsx
 'use client';
 
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/hooks/useAuth';
 import { useState, useEffect, useMemo } from 'react';
 import api from '@/lib/api';
+import { authService } from '@/lib/auth';
 import Link from 'next/link';
 import { 
   Shield, 
@@ -19,7 +19,6 @@ import {
   UserCheck,
   Search,
   Filter,
-  Eye,
   RefreshCw,
   Mail,
   Lock,
@@ -28,9 +27,14 @@ import {
   Calendar,
   BarChart3,
   Download,
-  MoreVertical,
   ChevronDown,
-  UserX
+  UserX,
+  Phone,
+  MapPin,
+  Eye,
+  EyeOff,
+  Ban,
+  UserCircle
 } from 'lucide-react';
 
 interface User {
@@ -38,6 +42,11 @@ interface User {
   username: string;
   email: string;
   role: string;
+  firstName?: string;  // ✅ NUEVO
+  lastName?: string;   // ✅ NUEVO
+  phoneNumber?: string;
+  address?: string;
+  birthDate?: string;
   createdAt?: string;
 }
 
@@ -46,11 +55,16 @@ interface EditUserData {
   username: string;
   email: string;
   role: string;
-  newPassword?: string;
+  firstName: string;   // ✅ NUEVO
+  lastName: string;    // ✅ NUEVO
+  phoneNumber: string;
+  address: string;
+  birthDate: string;
+  newPassword: string;
 }
 
 export default function AdminPage() {
-  const { user } = useAuth();
+  const { user, checkAuth } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -60,19 +74,24 @@ export default function AdminPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [newUser, setNewUser] = useState({
     username: '',
     email: '',
     password: '',
-    role: 'Cliente'
+    role: 'Cliente',
+    firstName: '',   // ✅ NUEVO
+    lastName: '',    // ✅ NUEVO
+    phoneNumber: '',
+    address: '',
+    birthDate: ''
   });
   const [actionLoading, setActionLoading] = useState(false);
   const [stats, setStats] = useState({
     total: 0,
     admins: 0,
     clients: 0,
-    active: 0,
-    inactive: 0
+    active: 0
   });
 
   useEffect(() => {
@@ -86,13 +105,11 @@ export default function AdminPage() {
       const usersData = response.data;
       setUsers(usersData);
       
-      // Calcular estadísticas actualizadas
       setStats({
         total: usersData.length,
         admins: usersData.filter((u: User) => u.role === 'Admin').length,
         clients: usersData.filter((u: User) => u.role === 'Cliente').length,
-        active: usersData.length,
-        inactive: 0
+        active: usersData.length
       });
     } catch (error) {
       console.error('Error fetching users:', error);
@@ -101,57 +118,105 @@ export default function AdminPage() {
     }
   };
 
-  // Filtrar usuarios según búsqueda y filtros
   const filteredUsers = useMemo(() => {
-    return users.filter(user => {
+    return users.filter(u => {
       const matchesSearch = 
-        user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.id.toString().includes(searchTerm);
+        u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (u.firstName && u.firstName.toLowerCase().includes(searchTerm.toLowerCase())) || // ✅ NUEVO
+        (u.lastName && u.lastName.toLowerCase().includes(searchTerm.toLowerCase())) ||   // ✅ NUEVO
+        u.id.toString().includes(searchTerm) ||
+        (u.phoneNumber && u.phoneNumber.includes(searchTerm)) ||
+        (u.address && u.address.toLowerCase().includes(searchTerm));
       
-      const matchesRole = roleFilter === 'all' || user.role === roleFilter;
+      const matchesRole = roleFilter === 'all' || u.role === roleFilter;
       
       return matchesSearch && matchesRole;
     });
   }, [users, searchTerm, roleFilter]);
 
-  const handleEditUser = (user: User) => {
+  const handleEditUser = (u: User) => {
     setEditingUser({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role
+      id: u.id,
+      username: u.username,
+      email: u.email,
+      role: u.role,
+      firstName: u.firstName || '',   // ✅ NUEVO
+      lastName: u.lastName || '',     // ✅ NUEVO
+      phoneNumber: u.phoneNumber || '',
+      address: u.address || '',
+      birthDate: u.birthDate ? u.birthDate.split('T')[0] : '',
+      newPassword: ''
     });
     setShowEditModal(true);
+    setShowPassword(false);
   };
 
   const handleUpdateUser = async () => {
     if (!editingUser) return;
     
+    // ✅ BLOQUEAR: Admin no puede cambiar su propio rol
+    if (editingUser.id === user?.id && editingUser.role !== user?.role) {
+      alert('No puedes cambiar tu propio rol desde el panel de administración');
+      return;
+    }
+    
     setActionLoading(true);
     try {
-      // Actualizar rol si cambió
-      if (editingUser.role !== users.find(u => u.id === editingUser.id)?.role) {
-        await api.put(`/users/${editingUser.id}/role`, { 
-          role: editingUser.role 
-        });
+      const response = await api.put(`/users/${editingUser.id}`, {
+        username: editingUser.username,
+        email: editingUser.email,
+        role: editingUser.role,
+        firstName: editingUser.firstName.trim() || null,  // ✅ NUEVO
+        lastName: editingUser.lastName.trim() || null,    // ✅ NUEVO
+        phoneNumber: editingUser.phoneNumber,
+        address: editingUser.address,
+        birthDate: editingUser.birthDate,
+        password: editingUser.newPassword || undefined
+      });
+
+      // ✅ ACTUALIZACIÓN EN TIEMPO REAL: Si el admin editó su propio perfil
+      if (editingUser.id === user?.id) {
+        console.log('Admin editó su propio perfil, actualizando...');
+        
+        // Si el backend devuelve un nuevo token, usarlo
+        if (response.data?.token) {
+          console.log('Nuevo token recibido del backend');
+          authService.updateToken(response.data.token, editingUser.username);
+        } else {
+          // Si no hay token nuevo, actualizar localStorage manualmente
+          console.log('Actualizando localStorage manualmente');
+          localStorage.setItem('username', editingUser.username);
+          
+          // Disparar eventos para forzar actualización
+          window.dispatchEvent(new CustomEvent('auth-change', { 
+            detail: { action: 'login', username: editingUser.username }
+          }));
+          window.dispatchEvent(new Event('storage'));
+        }
+        
+        // Forzar recarga de datos del usuario
+        await checkAuth();
       }
-      
-      // En un sistema real, aquí iría la actualización de otros campos
-      // como email, username, password, etc.
-      
+
       alert('Usuario actualizado exitosamente');
       setShowEditModal(false);
       fetchUsers();
-    } catch (error) {
-      alert('Error al actualizar usuario');
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Error al actualizar usuario');
     } finally {
       setActionLoading(false);
     }
   };
 
-  const handleDeleteClick = (user: User) => {
-    setUserToDelete(user);
+  const handleDeleteClick = (u: User) => {
+    // ✅ BLOQUEAR: Admin no puede eliminarse a sí mismo
+    if (u.id === user?.id) {
+      alert('No puedes eliminar tu propia cuenta de administrador');
+      return;
+    }
+    
+    setUserToDelete(u);
     setShowDeleteModal(true);
   };
 
@@ -176,16 +241,62 @@ export default function AdminPage() {
     e.preventDefault();
     setActionLoading(true);
     try {
-      await api.post('/users', newUser);
+      // ✅ ENVIAR todos los campos incluyendo firstName y lastName
+      await api.post('/users', {
+        username: newUser.username,
+        email: newUser.email,
+        password: newUser.password,
+        role: newUser.role,
+        firstName: newUser.firstName.trim() || undefined,  // ✅ NUEVO
+        lastName: newUser.lastName.trim() || undefined,    // ✅ NUEVO
+        phoneNumber: newUser.phoneNumber,
+        address: newUser.address,
+        birthDate: newUser.birthDate
+      });
+      
       alert('Usuario creado exitosamente');
-      setNewUser({ username: '', email: '', password: '', role: 'Cliente' });
+      setNewUser({ 
+        username: '', 
+        email: '', 
+        password: '', 
+        role: 'Cliente',
+        firstName: '',   // ✅ NUEVO
+        lastName: '',    // ✅ NUEVO
+        phoneNumber: '',
+        address: '',
+        birthDate: ''
+      });
       setShowCreateModal(false);
       fetchUsers();
     } catch (error: any) {
-      alert(error.response?.data || 'Error al crear usuario');
+      alert(error.response?.data?.error || 'Error al crear usuario');
     } finally {
       setActionLoading(false);
     }
+  };
+
+  const decodeUtf8 = (text: string | undefined): string => {
+    if (!text) return '';
+    try {
+      if (!text.includes('Ã')) return text;
+      const bytes = new Uint8Array([...text].map(c => c.charCodeAt(0)));
+      const decoder = new TextDecoder('utf-8');
+      return decoder.decode(bytes);
+    } catch {
+      return text;
+    }
+  };
+
+  const maxDate = new Date();
+  maxDate.setFullYear(maxDate.getFullYear() - 18);
+  const maxDateString = maxDate.toISOString().split('T')[0];
+
+  // ✅ NUEVO: Función para mostrar nombre completo
+  const getFullName = (user: User) => {
+    if (user.firstName || user.lastName) {
+      return `${user.firstName || ''} ${user.lastName || ''}`.trim();
+    }
+    return user.username;
   };
 
   return (
@@ -224,7 +335,7 @@ export default function AdminPage() {
               </div>
               
               <div className="flex flex-wrap gap-3">
-                <Link href="/products">
+                <Link href="/admin/products">
                   <button className="flex items-center gap-2 bg-white text-gray-700 px-4 py-3 rounded-xl border border-gray-300 hover:bg-gray-50 transition-all duration-200 shadow-sm hover:shadow">
                     <ArrowLeft className="w-4 h-4" />
                     Volver a Productos
@@ -241,7 +352,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Estadísticas mejoradas */}
+          {/* Estadísticas */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div className="bg-gradient-to-br from-white to-blue-50 rounded-2xl shadow-sm border border-blue-100 p-6 hover:shadow-md transition-all duration-300">
               <div className="flex items-center justify-between">
@@ -265,7 +376,7 @@ export default function AdminPage() {
                   <p className="text-sm font-medium text-gray-600 mb-1">Administradores</p>
                   <p className="text-3xl font-bold text-purple-900">{stats.admins}</p>
                   <div className="text-xs text-gray-500 mt-2">
-                    {((stats.admins / stats.total) * 100).toFixed(1)}% del total
+                    {stats.total > 0 ? ((stats.admins / stats.total) * 100).toFixed(1) : 0}% del total
                   </div>
                 </div>
                 <div className="p-3 bg-purple-100 rounded-xl">
@@ -280,7 +391,7 @@ export default function AdminPage() {
                   <p className="text-sm font-medium text-gray-600 mb-1">Clientes</p>
                   <p className="text-3xl font-bold text-green-900">{stats.clients}</p>
                   <div className="text-xs text-gray-500 mt-2">
-                    {((stats.clients / stats.total) * 100).toFixed(1)}% del total
+                    {stats.total > 0 ? ((stats.clients / stats.total) * 100).toFixed(1) : 0}% del total
                   </div>
                 </div>
                 <div className="p-3 bg-green-100 rounded-xl">
@@ -306,7 +417,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Controles de búsqueda y filtro - COLORES CORREGIDOS */}
+          {/* Controles de búsqueda y filtro */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-8">
             <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
               <div>
@@ -332,7 +443,7 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* Barra de búsqueda y filtros - COLORES ARREGLADOS */}
+            {/* Barra de búsqueda y filtros */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -340,7 +451,7 @@ export default function AdminPage() {
                 </div>
                 <input
                   type="text"
-                  placeholder="Buscar por ID, nombre o email..."
+                  placeholder="Buscar por ID, nombre, apellido, email..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10 pr-4 py-3 w-full border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 placeholder-gray-400"
@@ -370,20 +481,12 @@ export default function AdminPage() {
                   <span className="text-sm font-medium text-gray-700">
                     Mostrando <span className="font-bold">{filteredUsers.length}</span> de <span className="font-bold">{users.length}</span> usuarios
                   </span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-medium text-gray-700">Ordenar por:</span>
-                    <select className="text-sm border-2 border-gray-200 bg-white text-gray-900 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                      <option>ID Ascendente</option>
-                      <option>Nombre A-Z</option>
-                      <option>Fecha de creación</option>
-                    </select>
-                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Tabla de usuarios mejorada - BOTÓN DUPLICADO ELIMINADO */}
+          {/* Tabla de usuarios */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-8">
             <div className="overflow-x-auto">
               {loading ? (
@@ -418,23 +521,11 @@ export default function AdminPage() {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                        <div className="flex items-center gap-2">
-                          <span>Usuario</span>
-                        </div>
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                        Información
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                        Rol
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                        Estado
-                      </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                        Acciones
-                      </th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Usuario</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Información</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Contacto</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Rol</th>
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
@@ -444,19 +535,24 @@ export default function AdminPage() {
                           <div className="flex items-center">
                             <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow">
                               <span className="text-sm font-bold text-white">
-                                {u.username.charAt(0).toUpperCase()}
+                                {(u.firstName?.charAt(0) || u.username.charAt(0)).toUpperCase()}
                               </span>
                             </div>
                             <div className="ml-4">
                               <div className="text-sm font-semibold text-gray-900">
-                                {u.username}
+                                {getFullName(u)}
                                 {u.id === user?.id && (
-                                  <span className="ml-2 px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded-full">
-                                    Tú
-                                  </span>
+                                  <span className="ml-2 px-2 py-0.5 text-xs bg-blue-100 text-blue-800 rounded-full">Tú</span>
                                 )}
                               </div>
-                              <div className="text-xs text-gray-500">ID: #{u.id}</div>
+                              <div className="text-xs text-gray-500">
+                                @{u.username} • ID: #{u.id}
+                              </div>
+                              {u.firstName && u.lastName && (
+                                <div className="text-xs text-gray-500 mt-1">
+                                  {u.firstName} {u.lastName}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -472,6 +568,28 @@ export default function AdminPage() {
                                 <span>Registrado: {new Date(u.createdAt).toLocaleDateString('es-ES')}</span>
                               </div>
                             )}
+                            {u.birthDate && (
+                              <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
+                                <Calendar className="w-3 h-3" />
+                                <span>Nacimiento: {new Date(u.birthDate).toLocaleDateString('es-ES')}</span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex flex-col text-sm">
+                            {u.phoneNumber && (
+                              <div className="flex items-center gap-2 text-gray-900 mb-1">
+                                <Phone className="w-4 h-4 text-gray-400" />
+                                <span>{u.phoneNumber}</span>
+                              </div>
+                            )}
+                            {u.address && (
+                              <div className="flex items-center gap-2 text-gray-500 text-xs">
+                                <MapPin className="w-3 h-3" />
+                                <span className="truncate max-w-[150px]">{decodeUtf8(u.address)}</span>
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -481,27 +599,14 @@ export default function AdminPage() {
                               : 'bg-gradient-to-r from-green-100 to-green-50 text-green-800 border border-green-200'
                           }`}>
                             {u.role === 'Admin' ? (
-                              <>
-                                <Shield className="w-3.5 h-3.5" />
-                                Administrador
-                              </>
+                              <><Shield className="w-3.5 h-3.5" /> Administrador</>
                             ) : (
-                              <>
-                                <UserCheck className="w-3.5 h-3.5" />
-                                Cliente
-                              </>
+                              <><UserCheck className="w-3.5 h-3.5" /> Cliente</>
                             )}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span className="text-sm text-gray-700">Activo</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-3">
-                            {/* SOLO BOTÓN DE EDITAR - BOTÓN DUPLICADO ELIMINADO */}
                             <button
                               onClick={() => handleEditUser(u)}
                               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors"
@@ -510,8 +615,16 @@ export default function AdminPage() {
                               Editar
                             </button>
                             
-                            {/* SOLO MUESTRA EL BOTÓN ELIMINAR SI NO ES EL USUARIO ACTUAL */}
-                            {u.id !== user?.id && (
+                            {/* ✅ BLOQUEAR ELIMINACIÓN PROPIA CUENTA */}
+                            {u.id === user?.id ? (
+                              <div 
+                                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"
+                                title="No puedes eliminar tu propia cuenta"
+                              >
+                                <Ban className="w-4 h-4" />
+                                <span>Eliminar</span>
+                              </div>
+                            ) : (
                               <button
                                 onClick={() => handleDeleteClick(u)}
                                 className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-colors"
@@ -529,98 +642,22 @@ export default function AdminPage() {
               )}
             </div>
           </div>
-
-          {/* Estado del sistema mejorado */}
-          <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl shadow-lg overflow-hidden mb-8">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-blue-500/20 rounded-xl">
-                    <BarChart3 className="w-6 h-6 text-blue-300" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-white">Estado del Sistema</h3>
-                </div>
-                <div className="text-xs text-gray-300 bg-gray-800/50 px-3 py-1.5 rounded-lg">
-                  Actualizado hace 2 minutos
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="text-sm text-gray-300">Autenticación</p>
-                      <p className="text-lg font-semibold text-white">Operativa</p>
-                    </div>
-                    <div className="p-2 bg-green-500/20 rounded-lg">
-                      <CheckCircle className="w-5 h-5 text-green-400" />
-                    </div>
-                  </div>
-                  <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                    <div className="h-full bg-green-500 w-full"></div>
-                  </div>
-                </div>
-                
-                <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="text-sm text-gray-300">Base de datos</p>
-                      <p className="text-lg font-semibold text-white">Conectada</p>
-                    </div>
-                    <div className="p-2 bg-green-500/20 rounded-lg">
-                      <CheckCircle className="w-5 h-5 text-green-400" />
-                    </div>
-                  </div>
-                  <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                    <div className="h-full bg-green-500 w-full"></div>
-                  </div>
-                </div>
-                
-                <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="text-sm text-gray-300">API Backend</p>
-                      <p className="text-lg font-semibold text-white">100%</p>
-                    </div>
-                    <div className="p-2 bg-blue-500/20 rounded-lg">
-                      <TrendingUp className="w-5 h-5 text-blue-400" />
-                    </div>
-                  </div>
-                  <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-500 w-4/5"></div>
-                  </div>
-                </div>
-                
-                <div className="bg-gray-800/30 backdrop-blur-sm rounded-xl p-4 border border-gray-700/50">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="text-sm text-gray-300">Seguridad</p>
-                      <p className="text-lg font-semibold text-white">Activa</p>
-                    </div>
-                    <div className="p-2 bg-purple-500/20 rounded-lg">
-                      <Shield className="w-5 h-5 text-purple-400" />
-                    </div>
-                  </div>
-                  <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                    <div className="h-full bg-purple-500 w-full"></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* Modal de Edición de Usuario - COLORES DE INPUTS CORREGIDOS */}
+      {/* Modal de Edición de Usuario */}
       {showEditModal && editingUser && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <div className="p-2 bg-blue-100 rounded-lg">
                     <Edit className="w-5 h-5 text-blue-600" />
                   </div>
-                  <h3 className="text-xl font-semibold text-gray-900">Editar Usuario</h3>
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    {editingUser.id === user?.id ? 'Editar Mi Perfil' : 'Editar Usuario'}
+                  </h3>
                 </div>
                 <button
                   onClick={() => setShowEditModal(false)}
@@ -630,14 +667,59 @@ export default function AdminPage() {
                 </button>
               </div>
 
+              {/* ✅ ALERTA: Si está editando su propia cuenta */}
+              {editingUser.id === user?.id && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-700 flex items-center gap-2">
+                    <Shield className="w-4 h-4" />
+                    Estás editando tu propia cuenta. Algunas opciones están deshabilitadas.
+                  </p>
+                </div>
+              )}
+
               <form onSubmit={(e) => {
                 e.preventDefault();
                 handleUpdateUser();
               }}>
                 <div className="space-y-4">
+                  {/* First Name */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Nombre de Usuario
+                      Nombres
+                    </label>
+                    <div className="relative">
+                      <UserCircle className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={editingUser.firstName}
+                        onChange={(e) => setEditingUser({...editingUser, firstName: e.target.value})}
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                        placeholder="Juan"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Last Name */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Apellidos
+                    </label>
+                    <div className="relative">
+                      <UserCircle className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={editingUser.lastName}
+                        onChange={(e) => setEditingUser({...editingUser, lastName: e.target.value})}
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                        placeholder="Pérez"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Username */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Nombre de Usuario <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -648,9 +730,10 @@ export default function AdminPage() {
                     />
                   </div>
 
+                  {/* Email */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Correo Electrónico
+                      Correo Electrónico <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="email"
@@ -661,51 +744,120 @@ export default function AdminPage() {
                     />
                   </div>
 
+                  {/* Rol - DESHABILITADO si es su propia cuenta */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Rol del Usuario
                     </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setEditingUser({...editingUser, role: 'Admin'})}
-                        className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-200 ${
-                          editingUser.role === 'Admin'
-                            ? 'bg-purple-100 text-purple-700 border-purple-300'
-                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-                        }`}
-                      >
-                        <Shield className="w-4 h-4" />
-                        Administrador
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingUser({...editingUser, role: 'Cliente'})}
-                        className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-200 ${
-                          editingUser.role === 'Cliente'
-                            ? 'bg-green-100 text-green-700 border-green-300'
-                            : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-                        }`}
-                      >
-                        <UserCheck className="w-4 h-4" />
-                        Cliente
-                      </button>
+                    {editingUser.id === user?.id ? (
+                      <div className="p-3 bg-gray-100 rounded-xl text-gray-600 text-sm flex items-center gap-2 border-2 border-gray-200">
+                        <Shield className="w-4 h-4 text-purple-600" />
+                        <span>Administrador</span>
+                        <span className="text-xs text-gray-500 ml-auto">(No editable)</span>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setEditingUser({...editingUser, role: 'Admin'})}
+                          className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-200 ${
+                            editingUser.role === 'Admin'
+                              ? 'bg-purple-100 text-purple-700 border-purple-300'
+                              : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          <Shield className="w-4 h-4" />
+                          Administrador
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingUser({...editingUser, role: 'Cliente'})}
+                          className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 transition-all duration-200 ${
+                            editingUser.role === 'Cliente'
+                              ? 'bg-green-100 text-green-700 border-green-300'
+                              : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          <UserCheck className="w-4 h-4" />
+                          Cliente
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Teléfono */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Teléfono
+                    </label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="tel"
+                        value={editingUser.phoneNumber}
+                        onChange={(e) => setEditingUser({...editingUser, phoneNumber: e.target.value})}
+                        placeholder="+51 999 888 777"
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                      />
                     </div>
                   </div>
 
+                  {/* Dirección */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Dirección
+                    </label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={editingUser.address}
+                        onChange={(e) => setEditingUser({...editingUser, address: e.target.value})}
+                        placeholder="Av. Principal 123, Lima"
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Fecha de Nacimiento */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Fecha de Nacimiento
+                    </label>
+                    <div className="relative">
+                      <Calendar className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="date"
+                        value={editingUser.birthDate}
+                        onChange={(e) => setEditingUser({...editingUser, birthDate: e.target.value})}
+                        max={maxDateString}
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">Debe ser mayor de 18 años</p>
+                  </div>
+
+                  {/* Nueva Contraseña */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Nueva Contraseña (opcional)
                     </label>
                     <div className="relative">
                       <input
-                        type="password"
-                        value={editingUser.newPassword || ''}
+                        type={showPassword ? "text" : "password"}
+                        value={editingUser.newPassword}
                         onChange={(e) => setEditingUser({...editingUser, newPassword: e.target.value})}
                         placeholder="Dejar vacío para no cambiar"
                         className="w-full px-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 pr-10 placeholder-gray-400"
                       />
-                      <Lock className="absolute right-3 top-3.5 w-4 h-4 text-gray-500" />
+                      <Lock className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -759,7 +911,7 @@ export default function AdminPage() {
               
               <p className="text-gray-600 text-center mb-6">
                 Estás a punto de eliminar permanentemente al usuario{' '}
-                <span className="font-semibold text-gray-900">{userToDelete.username}</span>.
+                <span className="font-semibold text-gray-900">{getFullName(userToDelete)}</span>.
                 Esta acción no se puede deshacer.
               </p>
               
@@ -805,10 +957,10 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* Modal de Crear Usuario - COLORES DE INPUTS CORREGIDOS */}
+      {/* Modal de Crear Usuario */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
@@ -827,9 +979,44 @@ export default function AdminPage() {
 
               <form onSubmit={handleCreateUser}>
                 <div className="space-y-4">
+                  {/* First Name */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Nombre de Usuario
+                      Nombres
+                    </label>
+                    <div className="relative">
+                      <UserCircle className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={newUser.firstName}
+                        onChange={(e) => setNewUser({...newUser, firstName: e.target.value})}
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                        placeholder="Juan"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Last Name */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Apellidos
+                    </label>
+                    <div className="relative">
+                      <UserCircle className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={newUser.lastName}
+                        onChange={(e) => setNewUser({...newUser, lastName: e.target.value})}
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                        placeholder="Pérez"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Username */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Nombre de Usuario <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="text"
@@ -840,9 +1027,10 @@ export default function AdminPage() {
                     />
                   </div>
 
+                  {/* Email */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Correo Electrónico
+                      Correo Electrónico <span className="text-red-500">*</span>
                     </label>
                     <input
                       type="email"
@@ -853,22 +1041,24 @@ export default function AdminPage() {
                     />
                   </div>
 
+                  {/* Contraseña */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Contraseña
+                      Contraseña <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
+                      <Lock className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
                       <input
                         type="password"
                         value={newUser.password}
                         onChange={(e) => setNewUser({...newUser, password: e.target.value})}
-                        className="w-full px-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200 pr-10"
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
                         required
                       />
-                      <Lock className="absolute right-3 top-3.5 w-4 h-4 text-gray-500" />
                     </div>
                   </div>
 
+                  {/* Rol */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Rol del Usuario
@@ -899,6 +1089,58 @@ export default function AdminPage() {
                         Cliente
                       </button>
                     </div>
+                  </div>
+
+                  {/* Teléfono */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Teléfono
+                    </label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="tel"
+                        value={newUser.phoneNumber}
+                        onChange={(e) => setNewUser({...newUser, phoneNumber: e.target.value})}
+                        placeholder="+51 999 888 777"
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Dirección */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Dirección
+                    </label>
+                    <div className="relative">
+                      <MapPin className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={newUser.address}
+                        onChange={(e) => setNewUser({...newUser, address: e.target.value})}
+                        placeholder="Av. Principal 123, Lima"
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Fecha de Nacimiento */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Fecha de Nacimiento
+                    </label>
+                    <div className="relative">
+                      <Calendar className="absolute left-3 top-3.5 w-4 h-4 text-gray-400" />
+                      <input
+                        type="date"
+                        value={newUser.birthDate}
+                        onChange={(e) => setNewUser({...newUser, birthDate: e.target.value})}
+                        max={maxDateString}
+                        className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 bg-white text-gray-900 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all duration-200"
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">Debe ser mayor de 18 años</p>
                   </div>
                 </div>
 

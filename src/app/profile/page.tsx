@@ -21,12 +21,15 @@ import {
   Loader2,
   Lock,
   Eye,
-  EyeOff
+  EyeOff,
+  UserCircle
 } from 'lucide-react';
 
 interface EditFormData {
   username: string;
   email: string;
+  firstName: string;  // ✅ NUEVO
+  lastName: string;   // ✅ NUEVO
   phoneNumber: string;
   address: string;
   birthDate: string;
@@ -50,6 +53,8 @@ export default function ProfilePage() {
   const [formData, setFormData] = useState<EditFormData>({
     username: '',
     email: '',
+    firstName: '',  // ✅ NUEVO
+    lastName: '',   // ✅ NUEVO
     phoneNumber: '',
     address: '',
     birthDate: '',
@@ -64,6 +69,8 @@ export default function ProfilePage() {
         ...prev,
         username: user.username || '',
         email: user.email || '',
+        firstName: user.firstName || '',  // ✅ NUEVO
+        lastName: user.lastName || '',    // ✅ NUEVO
         phoneNumber: user.phoneNumber || '',
         address: user.address || '',
         birthDate: user.birthDate ? user.birthDate.split('T')[0] : ''
@@ -103,11 +110,13 @@ export default function ProfilePage() {
     }).format(date);
   };
 
-  const formatBirthDate = (dateString: string | undefined) => {
-    if (!dateString) return 'No especificado';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('es-ES');
-  };
+const formatBirthDate = (dateString: string | undefined) => {
+  if (!dateString) return 'No especificado';
+
+  const [year, month, day] = dateString.split('T')[0].split('-');
+  return `${day}/${month}/${year}`;
+};
+
 
   const getMemberSince = (dateString: string | undefined) => {
     if (!dateString) return 'Recientemente';
@@ -184,9 +193,12 @@ export default function ProfilePage() {
           return;
         }
 
+        // ✅ CORREGIDO: Enviar firstName y lastName al backend
         const response = await api.put('/users/profile', {
           username: formData.username,
           email: formData.email,
+          firstName: formData.firstName,  // ✅ NUEVO
+          lastName: formData.lastName,    // ✅ NUEVO
           phoneNumber: formData.phoneNumber,
           address: formData.address,
           birthDate: formData.birthDate
@@ -194,13 +206,11 @@ export default function ProfilePage() {
 
         const { token, user: updatedUser } = response.data;
         
-        // ✅ ACTUALIZACIÓN INMEDIATA: Guardar nuevo token
         if (token) {
           localStorage.setItem('token', token);
           localStorage.setItem('username', updatedUser.username);
           document.cookie = `token=${token}; path=/; max-age=3600; samesite=lax`;
           
-          // ✅ ACTUALIZACIÓN INMEDIATA: Disparar eventos para actualizar toda la app
           window.dispatchEvent(new CustomEvent('auth-change', { 
             detail: { action: 'login', username: updatedUser.username }
           }));
@@ -208,8 +218,6 @@ export default function ProfilePage() {
         }
 
         setEditSuccess('Perfil actualizado correctamente');
-        
-        // ✅ ACTUALIZACIÓN INMEDIATA: Forzar recarga de datos
         await checkAuth();
         
       } else {
@@ -226,7 +234,6 @@ export default function ProfilePage() {
         setEditSuccess('Contraseña actualizada correctamente');
       }
 
-      // ✅ Cerrar modal más rápido (800ms en lugar de 1500ms)
       setTimeout(() => {
         if (activeTab === 'password') {
           setFormData(prev => ({
@@ -260,11 +267,13 @@ export default function ProfilePage() {
     setShowNewPassword(false);
     setShowConfirmPassword(false);
     
-    // ✅ RESTAURAR VALORES ORIGINALES del usuario actual
+    // ✅ RESTAURAR VALORES ORIGINALES incluyendo firstName y lastName
     if (user) {
       setFormData({
         username: user.username || '',
         email: user.email || '',
+        firstName: user.firstName || '',  // ✅ NUEVO
+        lastName: user.lastName || '',    // ✅ NUEVO
         phoneNumber: user.phoneNumber || '',
         address: user.address || '',
         birthDate: user.birthDate ? user.birthDate.split('T')[0] : '',
@@ -291,6 +300,14 @@ export default function ProfilePage() {
   maxDate.setFullYear(maxDate.getFullYear() - 18);
   const maxDateString = maxDate.toISOString().split('T')[0];
 
+  // ✅ NUEVO: Función para mostrar nombre completo
+  const getFullName = () => {
+    if (user?.firstName || user?.lastName) {
+      return `${user.firstName || ''} ${user.lastName || ''}`.trim();
+    }
+    return user?.username || 'Usuario';
+  };
+
   return (
     <ProtectedRoute>
       <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 py-8">
@@ -312,7 +329,7 @@ export default function ProfilePage() {
                 </div>
               </div>
               <div className="flex gap-3">
-                <Link href="/products">
+                <Link href="/shop">
                   <button className="flex items-center gap-2 bg-white text-gray-700 px-4 py-3 rounded-lg border border-gray-300 hover:bg-gray-50 transition-all duration-200 shadow-sm hover:shadow">
                     <ArrowLeft className="w-4 h-4" />
                     Volver
@@ -400,6 +417,42 @@ export default function ProfilePage() {
 
                     {activeTab === 'info' ? (
                       <>
+                        {/* ✅ NUEVO: Campo Nombres */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Nombres
+                          </label>
+                          <div className="relative">
+                            <UserCircle className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                            <input
+                              type="text"
+                              name="firstName"
+                              value={formData.firstName}
+                              onChange={handleChange}
+                              className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-gray-900"
+                              placeholder="Juan"
+                            />
+                          </div>
+                        </div>
+
+                        {/* ✅ NUEVO: Campo Apellidos */}
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Apellidos
+                          </label>
+                          <div className="relative">
+                            <UserCircle className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+                            <input
+                              type="text"
+                              name="lastName"
+                              value={formData.lastName}
+                              onChange={handleChange}
+                              className="pl-10 w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-gray-900"
+                              placeholder="Pérez"
+                            />
+                          </div>
+                        </div>
+
                         {/* Username */}
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -611,13 +664,20 @@ export default function ProfilePage() {
                     <div className="flex items-center gap-4">
                       <div className="h-20 w-20 rounded-2xl bg-white/20 backdrop-blur-sm border-2 border-white/30 flex items-center justify-center">
                         <span className="text-3xl font-bold text-white">
-                          {user?.username?.charAt(0).toUpperCase() || 'U'}
+                          {user?.firstName?.charAt(0) || user?.username?.charAt(0).toUpperCase() || 'U'}
                         </span>
                       </div>
                       <div>
+                        {/* ✅ NUEVO: Mostrar nombre completo si existe, sino username */}
                         <h2 className="text-2xl font-bold text-white mb-1">
-                          {user?.username || 'Usuario'}
+                          {getFullName()}
                         </h2>
+                        {/* ✅ NUEVO: Mostrar username como subtítulo si hay nombre completo */}
+                        {(user?.firstName || user?.lastName) && (
+                          <p className="text-white/80 text-sm mb-1">
+                            @{user?.username}
+                          </p>
+                        )}
                         <div className="flex items-center gap-2">
                           <div className={`px-3 py-1 text-xs font-semibold rounded-full ${
                             user?.role === 'Admin' 
@@ -646,6 +706,32 @@ export default function ProfilePage() {
                   </h3>
                   
                   <div className="space-y-6">
+                    {/* ✅ NUEVO: Campo Nombres */}
+                    <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
+                      <div className="p-2.5 bg-indigo-100 rounded-lg">
+                        <UserCircle className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-gray-500 mb-1">Nombres</p>
+                        <p className="font-medium text-gray-900">
+                          {user?.firstName || 'No especificado'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* ✅ NUEVO: Campo Apellidos */}
+                    <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
+                      <div className="p-2.5 bg-indigo-100 rounded-lg">
+                        <UserCircle className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm text-gray-500 mb-1">Apellidos</p>
+                        <p className="font-medium text-gray-900">
+                          {user?.lastName || 'No especificado'}
+                        </p>
+                      </div>
+                    </div>
+
                     <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl">
                       <div className="p-2.5 bg-blue-100 rounded-lg">
                         <User className="w-5 h-5 text-blue-600" />
@@ -724,8 +810,6 @@ export default function ProfilePage() {
                       {user?.role === 'Admin' ? 'Admin' : 'Cliente'}
                     </span>
                   </div>
-                  
-                  
                   
                   <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <span className="text-sm text-gray-700">Miembro desde</span>

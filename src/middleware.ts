@@ -13,17 +13,14 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Rutas de autenticación (redirigir si ya está autenticado)
-  const authRoutes = ['/login', '/register'];
-  const isAuthRoute = authRoutes.includes(pathname);
-
-  if (isAuthRoute && token) {
-    return NextResponse.redirect(new URL('/', request.url));
+  // Si está logueado, no permitir login/register - redirigir a /shop (no a /)
+  if ((pathname === '/login' || pathname === '/register') && token) {
+    return NextResponse.redirect(new URL('/', request.url)); // ✅ Cambiado a /shop
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

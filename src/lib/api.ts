@@ -1,36 +1,50 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5003/api';
+const PRODUCT_API_URL = 'http://localhost:5174/api';
+const AUTH_API_URL = 'http://localhost:5003/api';
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  withCredentials: true, // Agregado
+export const productApi = axios.create({
+    baseURL: PRODUCT_API_URL,
+    withCredentials: true,
+    headers: { 'Content-Type': 'application/json' }
 });
 
-// Interceptor para agregar token a las peticiones
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+export const authApi = axios.create({
+    baseURL: AUTH_API_URL,
+    withCredentials: true,
+    headers: { 'Content-Type': 'application/json' }
+});
+
+// INTERCEPTOR ULTRA SEGURO
+const authInterceptor = (config: any) => {
+    if (typeof window === 'undefined') return config;
+
+    let token = localStorage.getItem('token');
+    if (!token) return config;
+
+    // Limpieza extrema
+    token = token.replace(/^["']|["']$/g, '').trim();
+
+    if (token.split('.').length !== 3) {
+        console.error('❌ Token inválido (no tiene 3 partes)');
+        return config;
     }
+
+    config.headers.Authorization = `Bearer ${token}`;
+    console.log('✅ Token enviado (primeros 50):', token.substring(0, 50) + '...');
     return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
+};
 
-// Interceptor para manejar errores
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
+productApi.interceptors.request.use(authInterceptor);
+authApi.interceptors.request.use(authInterceptor);
+
+productApi.interceptors.response.use(
+    response => response,
+    error => {
+        console.error('❌ ERROR API:', error.config?.url, error.response?.status);
+        console.error('Headers enviados:', error.config?.headers);
+        return Promise.reject(error);
     }
-    return Promise.reject(error);
-  }
 );
 
-export default api;
+export default authApi;
